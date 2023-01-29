@@ -1,0 +1,21 @@
+[package]
+name = "idle-game-1"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+drax = { git = "https://github.com/ScrapyardRs/Drax", branch = "develop", features = ["nbt"] }
+mcprotocol = { git = "https://github.com/ScrapyardRs/MCProtocol.rs", branch = "develop" }
+shovel = { git = "https://github.com/ScrapyardRs/Shovel", branch = "develop" }
+
+anyhow = "1.0.68"
+chrono = "0.4.23"
+log = "0.4.17"
+serde = "1.0.152"
+serde_derive = "1.0.152"
+serde_json = "1.0.91"
+tokio = { version = "1.24.2", features = ["full"] }
+futures = "0.3.25"
+fern = "0.6.1"
