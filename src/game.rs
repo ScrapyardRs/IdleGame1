@@ -1,5 +1,11 @@
+pub mod blocks;
+pub mod grip_item;
 mod session;
+pub mod stateful;
+pub mod menus;
 
+use crate::chat::ChatHandlerPacket;
+use crate::console::ConsolePacket;
 use crate::game::session::GameSession;
 use mcprotocol::common::chunk::{CachedLevel, Chunk};
 use mcprotocol::common::play::{Location, SimpleLocation};
@@ -9,20 +15,25 @@ use shovel::system::{System, TickResult};
 use std::sync::Arc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
+pub struct ClientRouting {
+    pub chat: UnboundedSender<ChatHandlerPacket>,
+    pub console: UnboundedReceiver<ConsolePacket>,
+}
+
 #[derive(Clone)]
 pub struct GameLevel {
-    pub level: Arc<CachedLevel>,
-    pub spawn: Location,
+    level: Arc<CachedLevel>,
+    spawn: Location,
 }
 
 pub struct GameFactory {
-    initial_client_recv: UnboundedReceiver<ConnectedPlayer>,
+    initial_client_recv: UnboundedReceiver<(ClientRouting, ConnectedPlayer)>,
     level: GameLevel,
 }
 
 impl System for GameFactory {
     type CreationDetails = ();
-    type SplitOff = UnboundedSender<ConnectedPlayer>;
+    type SplitOff = UnboundedSender<(ClientRouting, ConnectedPlayer)>;
 
     fn create(_: Self::CreationDetails) -> (Self, Self::SplitOff) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -96,8 +107,8 @@ impl System for GameFactory {
         if next_player.is_none() {
             return TickResult::Stop;
         }
-        let player = next_player.unwrap();
-        GameSession::new(player, self.level.clone());
+        let (routing, player) = next_player.unwrap();
+        GameSession::new(routing, player, self.level.clone());
         TickResult::Continue
     }
 }

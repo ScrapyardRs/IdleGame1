@@ -1,7 +1,6 @@
 #![feature(async_fn_in_trait)]
+#![feature(once_cell)]
 
-use crate::game::GameFactory;
-use crate::logger::LoggerOptions;
 use drax::prelude::ErrorType;
 use log::LevelFilter;
 use mcprotocol::clientbound::play::ClientboundPlayRegistry::PlayerAbilities;
@@ -9,6 +8,7 @@ use mcprotocol::common::play::{GameType, Location, SimpleLocation};
 use mcprotocol::{combine, msg};
 use shovel::client::ProcessedPlayer;
 use shovel::entity::tracking::TrackableEntity;
+use shovel::phase::login::MinehutLoginServer;
 use shovel::phase::play::{ClientLoginProperties, ConnectedPlayer};
 use shovel::spawn_server;
 use shovel::status_builder;
@@ -16,11 +16,22 @@ use shovel::system::System;
 use tokio::join;
 use tokio::sync::mpsc::UnboundedSender;
 
-// mod _scrapped_lobby;
+use crate::chat::{create_global_chat_handle, ChatHandlerEntityStub, ChatHandlerPacket};
+use crate::console::{attach_console, ConsoleHandle};
+use crate::game::{ClientRouting, GameFactory};
+use crate::logger::LoggerOptions;
+
+mod chat;
+mod console;
+mod db;
 mod game;
 mod logger;
+mod ranks;
+pub mod raytrace;
 
 fn main() {
+    db::ensure_db();
+
     logger::attach_system_logger(LoggerOptions {
         log_level: LevelFilter::Info,
         log_file: None,
@@ -40,9 +51,13 @@ fn main() {
         .build()
         .unwrap()
         .block_on(async move {
+            let console = attach_console();
+            let chat = create_global_chat_handle();
+
             if let Err(err) = spawn_server! {
-                factory_sender,
-                @bind "0.0.0.0:25565",
+                (console, factory_sender, chat), MinehutLoginServer,
+                @proxy_protocol true,
+                @bind "0.0.0.0:25575",
                 @mc_status |count| status_builder! {
                     description: combine!(
                         msg!("Idle Game!\n", "#ffbbbb").bold(true),
@@ -61,8 +76,8 @@ fn main() {
                     pitch: 0.0,
                 },
                 @chunk_radius 8,
-                factory_tx, client -> {
-                    acquire_client(factory_tx, client).await?;
+                ctx, client -> {
+                    acquire_client(ctx, client).await?;
                     Ok(())
                 }
             } {
@@ -70,19 +85,23 @@ fn main() {
                     log::error!("Error running server: {}", err);
                 }
             }
-        })
+        });
 }
 
 async fn acquire_client(
-    game_tx: UnboundedSender<ConnectedPlayer>,
+    (console, factory_sender, chat): (
+        UnboundedSender<ConsoleHandle>,
+        UnboundedSender<(ClientRouting, ConnectedPlayer)>,
+        UnboundedSender<ChatHandlerPacket>,
+    ),
     mut client: ProcessedPlayer,
 ) -> drax::prelude::Result<()> {
     client
         .send_client_login(
-            "Example brand",
+            "Idle Game",
             ClientLoginProperties {
                 hardcore: false,
-                game_type: GameType::Creative,
+                game_type: GameType::Survival,
                 seed: 0,
                 max_players: 20,
                 simulation_distance: 20,
@@ -106,10 +125,44 @@ async fn acquire_client(
 
     let (mut client, read_handle, write_handle) = client.keep_alive().await;
 
+    let write_clone = client.packets.clone_writer();
+    let profile = client.profile().clone();
+    let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+
+    let (console_tx, console_rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let _ = console.send((profile.clone(), console_tx));
+
+    let chat_clone = chat.clone();
+    client = client.mutate_receiver(move |recv| {
+        let (ntx, nrx) = tokio::sync::mpsc::unbounded_channel();
+        let _ = chat_clone.send(ChatHandlerPacket::NewClient(ChatHandlerEntityStub {
+            packet_recv: recv,
+            packet_send: ntx,
+            write_clone,
+            profile,
+            init_ack: ack_tx,
+        }));
+        nrx
+    });
+
+    if ack_rx.await.is_err() {
+        return Ok(());
+    }
+
     // send initial position packet so the client can start loading in chunks
     client.teleport(client.location(), true).await;
 
-    if game_tx.send(client).is_err() {
+    if factory_sender
+        .send((
+            ClientRouting {
+                chat,
+                console: console_rx,
+            },
+            client,
+        ))
+        .is_err()
+    {
         return Ok(());
     }
 

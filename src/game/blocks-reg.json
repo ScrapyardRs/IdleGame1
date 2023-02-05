@@ -1,0 +1,11 @@
+{
+  "items": [
+    {
+      "block_ordinal": 0,
+      "minecraft_block_tag": "minecraft:stone",
+      "friendly_name": "Stone",
+      "is_default": true,
+      "initial_health": 100
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "items": [
+    {
+      "ordinal": 0,
+      "item_name": {
+        "text": "Starter Pickaxe",
+        "bold": true,
+        "italic": false,
+        "color": "aqua"
+      },
+      "item_lore_parts": [
+        {
+          "text": "This is a starter pickaxe",
+          "bold": false,
+          "italic": false,
+          "color": "white"
+        }
+      ],
+      "item_path": "minecraft:wooden_pickaxe",
+      "damage": 1
+    }
+  ]
+}
